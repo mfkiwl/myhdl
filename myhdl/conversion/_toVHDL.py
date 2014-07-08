@@ -147,6 +147,7 @@ class _ToVHDLConvertor(object):
         ### initialize properly ###
         _genUniqueSuffix.reset()
         _enumTypeSet.clear()
+        _enumPortTypeSet.clear()
         _constDict.clear()
         _extConstDict.clear()
 
@@ -170,9 +171,11 @@ class _ToVHDLConvertor(object):
             # add enum types to port-related set
             if isinstance(s._val, EnumItemType):
                 obj = s._val._type
-                assert obj in _enumTypeSet
-                _enumTypeSet.remove(obj)
-                _enumPortTypeSet.add(obj)
+                if obj in _enumTypeSet:
+                    _enumTypeSet.remove(obj)
+                    _enumPortTypeSet.add(obj)
+                else:
+                    assert obj in _enumPortTypeSet
 
         doc = _makeDoc(inspect.getdoc(func))
         
@@ -255,6 +258,8 @@ def _writeFileHeader(f, fn):
 def _writeCustomPackage(f, intf):
     print >> f
     print >> f, "package pck_%s is" % intf.name
+    print >> f
+    print >> f, "attribute enum_encoding: string;"
     print >> f
     sortedList = list(_enumPortTypeSet)
     sortedList.sort(cmp=lambda a, b: cmp(a._name, b._name))
@@ -414,8 +419,8 @@ def _getRangeString(s):
     elif s._nrbits is not None:
         ls = getattr(s, 'lenStr', False)
         if ls:
-	    msb = ls + '-1'
-	else:
+            msb = ls + '-1'
+        else:
             msb = s._nrbits-1 
         return "(%s downto 0)" %  msb
     else:
@@ -856,7 +861,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if isinstance(lhs.value, ast.Name):
                 sig = self.tree.symdict[lhs.value.id]
                 if not sig._numeric:
-	            #if not isinstance(rhs, ast.Num):
+                    #if not isinstance(rhs, ast.Num):
                     convOpen, convClose = "std_logic_vector(", ")"
             self.write(' <= ')
             self.SigAss = False
@@ -901,6 +906,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         fn = node.func
         # assert isinstance(fn, astNode.Name)
         f = self.getObj(fn)
+        pre, suf = '', ''
         opening, closing = '(', ')'
         sep = ", "
         if f is bool:
@@ -964,6 +970,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             self.write(" ns")
             return
         elif f is concat:
+            pre, suf = self.inferCast(node.vhd, node.vhdOri)
             opening, closing =  "unsigned'(", ")"
             sep = " & "
         elif hasattr(node, 'tree'):
@@ -971,12 +978,14 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
         else:
             self.write(f.__name__)
         if node.args:
+            self.write(pre)
             self.write(opening)
             self.visit(node.args[0])
             for arg in node.args[1:]:
                 self.write(sep)
                 self.visit(arg)
             self.write(closing)
+            self.write(suf)
         if hasattr(node, 'tree'):
             if node.tree.kind == _kind.TASK:
                 Visitor = _ConvertTaskVisitor
@@ -1193,7 +1202,7 @@ class _ConvertVisitor(ast.NodeVisitor, _ConversionMixin):
             if edges is not None:
                 edgeTests = [e._toVHDL() for e in edges]
                 self.write("elsif ")
-                self.write("or ".join(edgeTests))
+                self.write(" or ".join(edgeTests))
                 self.write(" then")
             else:
                 self.write("else")
@@ -1870,7 +1879,7 @@ class vhd_unsigned(vhd_vector):
             ls = self.lenStr
             if ls:
                 return "unsigned(%s-1 downto 0)" % ls
-	    else:
+            else:
                 return "unsigned(%s downto 0)" % (self.size-1)
         else:
             return "unsigned"
@@ -1881,7 +1890,7 @@ class vhd_signed(vhd_vector):
             ls = self.lenStr
             if ls:
                 return "signed(%s-1 downto 0)" % ls
-	    else:
+            else:
                 return "signed(%s downto 0)" % (self.size-1)
         else:
             return "signed"
@@ -2078,10 +2087,14 @@ class _AnnotateTypesVisitor(ast.NodeVisitor, _ConversionMixin):
             left.vhd = vhd_unsigned(1)
         if isinstance(right.vhd, (vhd_boolean, vhd_std_logic)):
             right.vhd = vhd_unsigned(1)
-        if maybeNegative(left.vhd) and isinstance(right.vhd, vhd_unsigned):
-            right.vhd = vhd_signed(right.vhd.size + 1)
-        if isinstance(left.vhd, vhd_unsigned) and maybeNegative(right.vhd):
-            left.vhd = vhd_signed(left.vhd.size + 1)
+        if isinstance(right.vhd, vhd_unsigned):
+            if maybeNegative(left.vhd) or \
+               (isinstance(op, ast.Sub) and not hasattr(node, 'isRhs')): 
+                right.vhd = vhd_signed(right.vhd.size + 1)
+        if isinstance(left.vhd, vhd_unsigned): 
+            if maybeNegative(right.vhd) or \
+               (isinstance(op, ast.Sub) and not hasattr(node, 'isRhs')):
+                left.vhd = vhd_signed(left.vhd.size + 1)
         l, r = left.vhd, right.vhd
         ls, rs = l.size, r.size       
         if isinstance(r, vhd_vector) and isinstance(l, vhd_vector):

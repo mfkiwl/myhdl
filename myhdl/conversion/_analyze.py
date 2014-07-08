@@ -511,6 +511,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         self.access = _access.OUTPUT
         self.visit(target)
         self.access = _access.INPUT
+        # set attribute to detect a top-level rhs
+        value.isRhs = True
         if isinstance(target, ast.Name):
             node.kind = _kind.DECLARATION
             self.kind = _kind.DECLARATION
@@ -530,7 +532,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     self.raiseError(node, _error.ModbvRange, n)
             ws = getattr(obj, 'lenStr', False)
             ext = getattr(obj, 'external', False)
-	    if ws and ws in self.tree.symdict:
+            if ws and ws in self.tree.symdict:
                 _constDict[ws] = self.tree.symdict[ws]
                 if ext:
                     _extConstDict[ws] = self.tree.symdict[ws]
@@ -550,6 +552,8 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
             self.visit(value)
 
     def visit_AugAssign(self, node):
+        # declare node as an rhs for type inference optimization
+        node.isRhs = True
         self.access = _access.INOUT
         self.visit(node.target)
         self.access = _access.INPUT
@@ -574,6 +578,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
         elif f is concat:
             node.obj = self.getVal(node)
         elif f is len:
+            self.access = _access.UNKNOWN
             node.obj = int(0) # XXX
         elif f is bool:
             node.obj = bool()
@@ -822,7 +827,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                     node.edge = sig.posedge
                 ws = getattr(sig._val, 'lenStr', False)
                 ext = getattr(sig._val, 'external', False)
-	        if ws and ws in self.tree.symdict:
+                if ws and ws in self.tree.symdict:
                     _constDict[ws] = self.tree.symdict[ws]
                     if ext:
                         _extConstDict[ws] = self.tree.symdict[ws]
@@ -864,7 +869,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 self.tree.hasLos = True
                 ws = getattr(m.elObj._val, 'lenStr', False)
                 ext = getattr(m.elObj._val, 'external', False)
-	        if ws and ws in self.tree.symdict:
+                if ws and ws in self.tree.symdict:
                     _constDict[ws] = self.tree.symdict[ws]
                     if ext:
                         _extConstDict[ws] = self.tree.symdict[ws]
@@ -879,7 +884,7 @@ class _AnalyzeVisitor(ast.NodeVisitor, _ConversionMixin):
                 # typedef string for nonlocal intbv's
                 ws = getattr(v, 'lenStr', False)
                 ext = getattr(v, 'external', False)
-	        if ws and ws in self.tree.symdict:
+                if ws and ws in self.tree.symdict:
                     _constDict[ws] = self.tree.symdict[ws]
                     if ext:
                         _extConstDict[ws] = self.tree.symdict[ws]
